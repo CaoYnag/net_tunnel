@@ -17,22 +17,20 @@ namespace bpo = boost::program_options;
 using std::string;
 using _lock_t = std::lock_guard<std::mutex>;
 
-bool             _once = false; // run once
-std::mutex       _qlock;        // queue lock
-std::queue<SOCK> _queue;        // connection queue
-int              _cport;        // port for client
-int              _eport;        // port for endpoint
-SOCK             _ctrl;         // ctrl socket
-SOCK             _cs;           // sock for client
-SOCK             _es;           // sock for endpoint
+std::mutex       _qlock;   // queue lock
+std::queue<SOCK> _queue;   // connection queue
+int              _cport;   // port for client
+int              _ep_port; // port for endpoint
+SOCK             _ctrl;    // ctrl socket
+SOCK             _sc;      // sock for client
+SOCK             _sep;     // sock for endpoint
 
 bool reg_opt(int argc, char** argv, bpo::variables_map& vm) {
     bpo::options_description opts("tunnel hub");
     opts.add_options()                                                                                //
         ("help,h", "show help info")                                                                  //
-        ("once,o", "run once, term when ep disconnect")                                               //
         ("cport,c", bpo::value<int>(&_cport)->default_value(9999)->value_name("port"), "client port") //
-        ("eport,e", bpo::value<int>(&_eport)->default_value(9000)->value_name("port"), "endpoint port");
+        ("eport,e", bpo::value<int>(&_ep_port)->default_value(9000)->value_name("port"), "endpoint port");
 
     try {
         store(bpo::command_line_parser(argc, argv).options(opts).run(), vm);
@@ -102,7 +100,7 @@ SOCK next_ep_connection() {
 
 void rcv_ep() {
     while (true) {
-        SOCK s = accept(_es, nullptr, nullptr); // ctrl connection
+        SOCK s = accept(_sep, nullptr, nullptr); // ctrl connection
         if (s) {
             _lock_t g(_qlock);
             _queue.push(s);
@@ -112,14 +110,14 @@ void rcv_ep() {
 
 void clear() {
     if (_ctrl) close(_ctrl);
-    if (_cs) close(_cs);
-    if (_es) close(_es);
+    if (_sc) close(_sc);
+    if (_sep) close(_sep);
 }
 
 int build_ep() {
-    listen(_es, 100);
-    printf("waiting endpoints at [:%d]\n", _eport);
-    _ctrl = accept(_es, nullptr, nullptr); // first accept connection as ctrl connection
+    listen(_sep, 100);
+    printf("waiting endpoints at [:%d]\n", _ep_port);
+    _ctrl = accept(_sep, nullptr, nullptr); // first accept connection as ctrl connection
     if (_ctrl < 0) {
         perror("failed accept ctrl conn\n");
         return 1;
@@ -149,11 +147,11 @@ void dispatch_new_cli(SOCK c) {
     }
 }
 
-int start_srv() {
-    listen(_cs, 100);
+int srv_cli() {
+    listen(_sc, 100);
     printf("waiting clients [:%d]\n", _cport);
     while (true) {
-        SOCK c = accept(_cs, nullptr, 0);
+        SOCK c = accept(_sc, nullptr, 0);
         if (c < 0) continue;
         std::thread(std::bind(dispatch_new_cli, c)).detach();
     }
@@ -165,11 +163,11 @@ int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     bpo::variables_map vm;
     if (reg_opt(argc, argv, vm)) return 0;
-    if (setup_socket(_es, _eport)) return 1;
-    if (setup_socket(_cs, _cport)) return 1;
+    if (setup_socket(_sep, _ep_port)) return 1;
+    if (setup_socket(_sc, _cport)) return 1;
 
     if (build_ep()) goto quit;
-    start_srv();
+    srv_cli();
 
 quit:
     clear();

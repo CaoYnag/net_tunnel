@@ -11,18 +11,29 @@
 #include <boost/program_options.hpp>
 #include <thread>
 #include <functional>
+#include <signal.h>
+#include <atomic>
 #include "utils.h"
 namespace bpo = boost::program_options;
 using std::string;
 
-string      _hub;   // hub addr
-int         _hport; // hub port
-string      _fwd;   // forward addr
-int         _lport; // forward port
-SOCK        _ctrl;  // ctrl connection
-sockaddr_in _hub_addr;
-sockaddr_in _fwd_addr;
+constexpr const int HEALTH_CHECK_DELAY = 5;
+enum SOCK_TYP {
+    _st_hub = 0,
+    _st_epc,
+    _st_fwd
+};
 
+std::atomic<bool> _srving(false);
+string            _hub;     // hub addr
+int               _hport;   // hub port
+int               _epcport; // epc port
+string            _fwd;     // forward addr
+int               _lport;   // forward port
+SOCK              _ctrl;    // ctrl connection
+sockaddr_in       _hub_addr;
+sockaddr_in       _epc_addr;
+sockaddr_in       _fwd_addr;
 
 bool reg_opt(int argc, char** argv, bpo::variables_map& vm) {
     bpo::options_description opts("tunnel endpoint");
@@ -53,7 +64,7 @@ ret:
     return true;
 }
 
-SOCK setup_socket(bool hub) {
+SOCK setup_socket(int typ) {
     SOCK s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) {
         fprintf(stderr, "failed create socket\n");
@@ -61,15 +72,18 @@ SOCK setup_socket(bool hub) {
     }
     sockaddr* addr;
     int       len;
-    if (hub) {
+    if (typ == _st_hub) {
         addr = (sockaddr*)&_hub_addr;
         len  = sizeof(_hub_addr);
-    } else {
+    } else if (typ == _st_fwd) {
         addr = (sockaddr*)&_fwd_addr;
+        len  = sizeof(_fwd_addr);
+    } else if (typ == _st_epc) {
+        addr = (sockaddr*)&_epc_addr;
         len  = sizeof(_fwd_addr);
     }
     if (connect(s, addr, len) < 0) {
-        fprintf(stderr, "failed connect to %s\n", (hub ? "hub" : "fwd"));
+        fprintf(stderr, "failed connect to typ[%d]\n", typ);
         return -1;
     }
 
@@ -77,66 +91,129 @@ SOCK setup_socket(bool hub) {
 }
 
 int ctrl_msg(const string& msg) {
-    send(_ctrl, msg.c_str(), msg.length(), 0);
+    if (send(_ctrl, msg.c_str(), msg.length(), 0) < 0) {
+        _srving = false; // ep disconnected
+        return 1;
+    }
     return 0;
-}
-
-void connect_hub_fwd(SOCK h, SOCK f) {
-    printf("connection [%d:%d] start\n", h, f);
-    std::thread(std::bind(packet_forward, f, h)).detach();
-    packet_forward(h, f);
-    close(h);
-    close(f);
-    printf("connection [%d:%d] close\n", h, f);
 }
 
 void add_data_connection() {
-    SOCK h = setup_socket(true);
-    if (h < 0) return;
-    SOCK f = setup_socket(false);
+    SOCK h = setup_socket(_st_epc);
+    if (h < 0) {
+        printf("add tunnel failed: failed connect to epc\n");
+        return;
+    }
+    SOCK f = setup_socket(_st_fwd);
     if (f < 0) {
+        printf("add tunnel failed: failed connect to forward host for epc[%d]\n", h);
         close(h);
         return;
     }
-    std::thread(std::bind(connect_hub_fwd, h, f)).detach();
+    std::thread(std::bind(create_tunnel, h, f)).detach();
 }
 
 int setup_ctrl() {
-    _ctrl = setup_socket(true);
+    _ctrl = setup_socket(_st_hub);
     if (_ctrl < 0) return 1;
     return 0;
 }
+
+// init addr
 void init() {
     memset(&_fwd_addr, 0, sizeof(_fwd_addr));
     _fwd_addr.sin_family      = AF_INET;
     _fwd_addr.sin_port        = htons(_lport);
     _fwd_addr.sin_addr.s_addr = inet_addr(_fwd.c_str());
-    printf("forward %s:%d\n", _fwd.c_str(), _lport);
 
     memset(&_hub_addr, 0, sizeof(_hub_addr));
     _hub_addr.sin_family      = AF_INET;
     _hub_addr.sin_port        = htons(_hport);
     _hub_addr.sin_addr.s_addr = inet_addr(_hub.c_str());
-    printf("hub     %s:%d\n", _hub.c_str(), _hport);
 }
-int handle_ctrl() {
-    while (true) {
+
+void handle_ctrl() {
+    printf("start rcving hub request.\n");
+    while (_srving) {
         char buff[2048];
         int  n = recv(_ctrl, buff, 2048, 0);
-        if (n < 0) {
+        if (n <= 0) {
             perror("error recv from ctrl\n");
-            return 1;
+            break;
         }
-        printf("got ctrl msg, creating new connections...\n");
-        add_data_connection();
+        switch (buff[0]) {
+        case 'c': {
+            // new epc request
+            printf("got epc request, creating new connections...\n");
+            add_data_connection();
+        } break;
+        case 'h': {
+            // health check, ignore
+        } break;
+        }
+    }
+    printf("stop rcving hub request.\n");
+}
+
+// handle epc port msg
+int handle_epc_port() {
+    char buff[2048];
+    int  n = recv(_ctrl, buff, 2048, 0);
+    if (n <= 0) {
+        return 1;
+    }
+    n = 0;
+    n = sscanf(buff, "%d", &_epcport);
+    if (n != 1) {
+        printf("error epc port msg: [%s]\n", buff);
+        return 1;
+    }
+    printf("Hub epc port: %d\n", _epcport);
+    memset(&_epc_addr, 0, sizeof(_epc_addr));
+    _epc_addr.sin_family      = AF_INET;
+    _epc_addr.sin_port        = htons(_epcport);
+    _epc_addr.sin_addr.s_addr = inet_addr(_hub.c_str());
+    return 0;
+}
+
+void start() {
+    printf("Endpoint start.\nHub    : %s:%d\nForward: %s:%d\n",
+           _hub.c_str(), _hport, _fwd.c_str(), _lport);
+    _srving = false;
+    printf("connecting hub...\n");
+    while (true) {
+        // 1. connect hub
+        while (setup_ctrl()) {
+            sleep(5);
+            printf("connect failed, try again after 5s...\n");
+        }
+
+        // 2. get epc port from hub
+        if (handle_epc_port()) {
+            close(_ctrl);
+            printf("failed to get epc port from hub, try reconnect...\n");
+            continue;
+        }
+
+        // 2. srving
+        printf("connected to hub.\n");
+        _srving = true;
+        std::thread(handle_ctrl).detach();
+
+        // 3. health check
+        while (_srving) {
+            sleep(HEALTH_CHECK_DELAY);
+            ctrl_msg("h"); // empty msg, just check connection.
+        }
+        printf("hub lost, reconnecting...\n");
     }
 }
 
 int main(int argc, char** argv) {
+    signal(SIGPIPE, SIG_IGN);
     bpo::variables_map vm;
     if (reg_opt(argc, argv, vm)) return 0;
     init();
-    if (setup_ctrl()) return 0;
-    handle_ctrl();
+    start();
     return 0;
 }

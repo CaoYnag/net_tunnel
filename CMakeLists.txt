@@ -22,7 +22,7 @@ if(UNIX OR MINGW)
 	endif()
 endif()
 
-
+## svr
 add_executable(
     tunnel-svr
     ${PROJECT_SOURCE_DIR}/svr.cpp
@@ -31,6 +31,8 @@ target_link_libraries(
 	tunnel-svr
 	boost_program_options
 )
+
+## hub
 add_executable(
     hub
     ${PROJECT_SOURCE_DIR}/hub.cpp
@@ -40,6 +42,8 @@ target_link_libraries(
 	hub
 	boost_program_options
 )
+
+## ep
 add_executable(
     ep
     ${PROJECT_SOURCE_DIR}/ep.cpp
@@ -49,6 +53,8 @@ target_link_libraries(
 	ep
 	boost_program_options
 )
+
+## hub2
 add_executable(
     hub2
     ${PROJECT_SOURCE_DIR}/hub2.cpp
@@ -58,6 +64,8 @@ target_link_libraries(
 	hub2
 	boost_program_options
 )
+
+## ep2
 add_executable(
     ep2
     ${PROJECT_SOURCE_DIR}/ep2.cpp
@@ -67,6 +75,8 @@ target_link_libraries(
 	ep2
 	boost_program_options
 )
+
+## hub3
 add_executable(
     hub3
     ${PROJECT_SOURCE_DIR}/hub3.cpp
@@ -74,5 +84,27 @@ add_executable(
 )
 target_link_libraries(
 	hub3
+	boost_program_options
+)
+
+## hub4
+add_executable(
+    hub4
+    ${PROJECT_SOURCE_DIR}/hub4.cpp
+    ${PROJECT_SOURCE_DIR}/utils.cpp
+)
+target_link_libraries(
+	hub4
+	boost_program_options
+)
+
+## ep3
+add_executable(
+    ep3
+    ${PROJECT_SOURCE_DIR}/ep3.cpp
+    ${PROJECT_SOURCE_DIR}/utils.cpp
+)
+target_link_libraries(
+	ep3
 	boost_program_options
 )
