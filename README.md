@@ -45,3 +45,7 @@ added ip:port record
 add reconnect between hub & ep
 
 seperate ep:epc
+
+add epc expire
+
+add psw

@@ -98,7 +98,7 @@ SOCK next_ep_connection() {
     return -1;
 }
 
-void rcv_ep() {
+void rcv_epc() {
     while (true) {
         SOCK s = accept(_sep, nullptr, nullptr); // ctrl connection
         if (s) {
@@ -123,7 +123,7 @@ int build_ep() {
         return 1;
     }
     printf("ep connected.\n");
-    std::thread(rcv_ep).detach();
+    std::thread(rcv_epc).detach();
     return 0;
 }
 

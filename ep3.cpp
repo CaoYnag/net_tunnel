@@ -34,11 +34,13 @@ SOCK              _ctrl;    // ctrl connection
 sockaddr_in       _hub_addr;
 sockaddr_in       _epc_addr;
 sockaddr_in       _fwd_addr;
+string            _psw; // psw
 
 bool reg_opt(int argc, char** argv, bpo::variables_map& vm) {
     bpo::options_description opts("tunnel endpoint");
     opts.add_options()                                                                                           //
         ("help,h", "show help info")                                                                             //
+        ("psw", bpo::value<std::string>(&_psw), "password to connect hub")                                       //
         ("hub,u", bpo::value<string>(&_hub)->value_name("host"), "hub host")                                     //
         ("port,p", bpo::value<int>(&_hport)->value_name("port"), "hub port")                                     //
         ("forward,f", bpo::value<string>(&_fwd)->value_name("host")->default_value("127.0.0.1"), "forward host") //
@@ -55,6 +57,10 @@ bool reg_opt(int argc, char** argv, bpo::variables_map& vm) {
     if (vm.count("help")) goto err;
     if (vm.count("hub") * vm.count("port") * vm.count("lport") == 0) {
         perror("check parameters.\n");
+        goto err;
+    }
+    if (!vm.count("psw")) {
+        printf("pls set a password\n");
         goto err;
     }
     return false;
@@ -116,6 +122,7 @@ void add_data_connection() {
 int setup_ctrl() {
     _ctrl = setup_socket(_st_hub);
     if (_ctrl < 0) return 1;
+    ctrl_msg(_psw);
     return 0;
 }
 
