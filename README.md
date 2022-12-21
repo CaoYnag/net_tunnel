@@ -1,51 +1,37 @@
-# tunnel
+a simple tcp tunnel.
+I use this stuff to forward my Terraria Server😝
 
-## Hub + Endpoint(ep)
-client(user) --------------------> Svr
-client(user) -> Hub <- Endpoint -> Svr
-Exp:
-player(any net) -> Hub(cloud) <- Ep|Svr (local)
-
-a connection creation timeline:
-1. Hub start, listen for ep
-2. Ep start, connect to Hub
-3. client -(tcp)-> cp Hub
-4. Hub ep -(new connection pls)-> Ep
-5. Ep connect Svr, Ep connect Hub, connect the two connection
-6. Hub rcv connection from Ep, connect client connection(step 3) and this connection
-7. user & Svr communicate
-
-## Problem
-
-### detect socket close
-6 socket in a full tunnel, name them as:
-Client(c) <-> (hc) Hub (he) <-> (eh) Ep (es) <-> (s) Svr
-#### user close conn
-user close c. how to detect it.
-#### svr close conn
-Svr close s, how to detect it.
-
-## Usage
-### svr
+# build
+build with cmake:
 ```shell
-./svr -p 9999 -t 1111:2222 -u 3333:4444
+mkdir build
+cd build
+cmake ..
+make
 ```
 
-### hub+ep
+or, just compile it use `g++`:
+```shell
+g++ utils.cpp hub.cpp -o hub -lboost_program_options -pthread
+g++ utils.cpp ep.cpp -o ep -lboost_program_options -pthread
+```
+# Usage
 
-### hub+ep (ver.2)
-remove connection pool
+run `hub` in svr, which you can connect anywhere.
+and run `ep` in where you want to forward.
 
-### hub (ver.3)
-queue connection from ep
+for example, I had a game svr in my local pc with port `33333`.
+my friends want to connect it in maybe another city.
+then I run:
 
-### hub(ver4) ep(ver3)
-added ip:port record
+```shell
+# in my server
+./hub -e 11111 -p 22222 -c 33333  --psw 123
 
-add reconnect between hub & ep
+# in my pc where i run game svr
+./ep -u x.x.x.x -p 11111 -l 33333 --psw 123
 
-seperate ep:epc
-
-add epc expire
-
-add psw
+# my friends
+# just connect to x.x.x.x:33333 in game
+```
+then they could enjoy the game with me.
